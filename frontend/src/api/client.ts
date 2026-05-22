@@ -3,6 +3,7 @@ import type {
   StartSessionResponse,
   NextQuestionResponse,
   AnswerResponse,
+  InsightsResponse,
 } from "../types";
 
 const api = axios.create({
@@ -43,6 +44,18 @@ export async function submitAnswer(
     `/api/session/${sessionId}/answer`,
     { question_id: questionId, answer },
     { headers: { Authorization: `Bearer ${token}` } }
+  );
+  return data;
+}
+
+// ─── Dashboard ──────────────────────────────────────────────
+
+export async function fetchInsights(
+  adminToken: string
+): Promise<InsightsResponse> {
+  const { data } = await api.get<InsightsResponse>(
+    "/api/dashboard/insights",
+    { headers: { Authorization: `Bearer ${adminToken}` } }
   );
   return data;
 }
