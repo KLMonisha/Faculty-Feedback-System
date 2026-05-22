@@ -1,0 +1,21 @@
+{
+  "name": "faculty-feedback-system",
+  "version": "1.0.0",
+  "description": "Faculty Feedback System — monorepo with React frontend, Express backend, FastAPI AI service, and PostgreSQL/Redis",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n frontend,backend,ai-service -c cyan,green,magenta \"npm run dev:frontend\" \"npm run dev:backend\" \"npm run dev:ai\"",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:ai": "cd ai-service && uvicorn main:app --reload --port 8000",
+    "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install && cd ../ai-service && pip install -r requirements.txt",
+    "build:frontend": "cd frontend && npm run build",
+    "lint": "cd frontend && npm run lint"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
