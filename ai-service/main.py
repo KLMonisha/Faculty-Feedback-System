@@ -1,20 +1,37 @@
 """
 Faculty Feedback System — AI Service
-FastAPI application for AI-powered feedback analysis using Claude.
+FastAPI application for adaptive question selection and AI-powered feedback analysis.
 """
+
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routes import analysis, health
+from app.routes import health, analysis
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup / shutdown lifecycle."""
+    # Startup: the cold-start model trains at import time (question_selector.py)
+    print("🤖 AI Service started")
+    print(f"📄 Docs at http://localhost:{settings.port}/docs")
+    print(f"🌿 Claude model: {settings.claude_model}")
+    print(f"🎯 Max questions/session: {settings.max_questions_per_session}")
+    yield
+    # Shutdown
+    print("👋 AI Service shutting down")
+
 
 app = FastAPI(
     title="Faculty Feedback AI Service",
-    description="AI-powered sentiment analysis and feedback processing",
+    description="Adaptive question selection and AI-powered feedback analysis",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 # ─── CORS ────────────────────────────────────────────────────
@@ -27,11 +44,5 @@ app.add_middleware(
 )
 
 # ─── Routes ──────────────────────────────────────────────────
-app.include_router(health.router, prefix="/api", tags=["Health"])
+app.include_router(health.router, prefix="/api",          tags=["Health"])
 app.include_router(analysis.router, prefix="/api/analysis", tags=["Analysis"])
-
-
-@app.on_event("startup")
-async def startup_event():
-    print("🤖 AI Service started")
-    print(f"📄 Docs available at http://localhost:8000/docs")

@@ -19,7 +19,9 @@
     "bcryptjs": "^2.4.3",
     "helmet": "^8.0.0",
     "morgan": "^1.10.0",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "express-rate-limit": "^7.4.0",
+    "axios": "^1.7.7"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",

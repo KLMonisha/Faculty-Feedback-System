@@ -1,91 +1,106 @@
 -- ============================================================
--- Faculty Feedback System — Database Schema
+-- Faculty Feedback System — Migration 001: Initial Schema
 -- PostgreSQL ≥ 15
 -- ============================================================
+--
+-- PRIVACY INVARIANT
+-- Student identity (students table) must NEVER appear alongside
+-- response data (responses table) in any single query.
+-- The schema enforces this by design:
+--   responses → feedback_sessions → students  (two-hop, no shortcut FK)
+-- Application code MUST NOT join across both hops in one query.
+-- ============================================================
 
--- Enable UUID generation
+BEGIN;
+
+-- ─── Extensions ─────────────────────────────────────────────
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- ─── Users ──────────────────────────────────────────────────
-CREATE TABLE users (
-    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    email       VARCHAR(255) UNIQUE NOT NULL,
-    password    VARCHAR(255) NOT NULL,
-    full_name   VARCHAR(255) NOT NULL,
-    role        VARCHAR(20)  NOT NULL DEFAULT 'student'
-                CHECK (role IN ('student', 'faculty', 'admin')),
-    created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_role  ON users(role);
-
--- ─── Courses ────────────────────────────────────────────────
-CREATE TABLE courses (
-    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    code        VARCHAR(20)  UNIQUE NOT NULL,
-    name        VARCHAR(255) NOT NULL,
-    department  VARCHAR(100),
-    semester    VARCHAR(20),
-    created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
-);
-
--- ─── Faculty–Course mapping ─────────────────────────────────
-CREATE TABLE faculty_courses (
-    faculty_id  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    course_id   UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
-    PRIMARY KEY (faculty_id, course_id)
-);
-
--- ─── Feedback ───────────────────────────────────────────────
-CREATE TABLE feedback (
-    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    student_id      UUID         REFERENCES users(id) ON DELETE SET NULL,
-    faculty_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    course_id       UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
-    feedback_text   TEXT NOT NULL,
-    is_anonymous    BOOLEAN NOT NULL DEFAULT TRUE,
-    status          VARCHAR(20)  NOT NULL DEFAULT 'pending'
-                    CHECK (status IN ('pending', 'analyzed', 'reviewed', 'archived')),
-    created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX idx_feedback_faculty ON feedback(faculty_id);
-CREATE INDEX idx_feedback_course  ON feedback(course_id);
-CREATE INDEX idx_feedback_status  ON feedback(status);
-
--- ─── AI Analysis Results ────────────────────────────────────
-CREATE TABLE analysis_results (
-    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    feedback_id     UUID UNIQUE NOT NULL REFERENCES feedback(id) ON DELETE CASCADE,
-    sentiment       VARCHAR(20) NOT NULL
-                    CHECK (sentiment IN ('positive', 'negative', 'neutral', 'mixed')),
-    confidence      DECIMAL(3,2) NOT NULL CHECK (confidence BETWEEN 0 AND 1),
-    summary         TEXT,
-    key_themes      JSONB DEFAULT '[]'::jsonb,
-    suggestions     JSONB DEFAULT '[]'::jsonb,
-    model_version   VARCHAR(50),
-    analyzed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX idx_analysis_feedback  ON analysis_results(feedback_id);
-CREATE INDEX idx_analysis_sentiment ON analysis_results(sentiment);
-
--- ─── Updated-at trigger ─────────────────────────────────────
-CREATE OR REPLACE FUNCTION update_updated_at()
-RETURNS TRIGGER AS $$
+-- ─── Custom Types ───────────────────────────────────────────
+DO $$
 BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'question_type') THEN
+        CREATE TYPE question_type AS ENUM ('rating', 'mcq', 'open');
+    END IF;
+END
+$$;
 
-CREATE TRIGGER trg_users_updated_at
-    BEFORE UPDATE ON users
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+-- ─── 1. Students ────────────────────────────────────────────
+-- Stores only a hashed token — no PII, no email, no name.
+CREATE TABLE IF NOT EXISTS students (
+    id            UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+    hashed_token  TEXT        UNIQUE NOT NULL,
+    created_at    TIMESTAMP   NOT NULL DEFAULT NOW()
+);
 
-CREATE TRIGGER trg_feedback_updated_at
-    BEFORE UPDATE ON feedback
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+-- ─── 2. Feedback Sessions ───────────────────────────────────
+-- Links a student to a concern branch. This is the ONLY table
+-- that references both a student id and session-level metadata.
+CREATE TABLE IF NOT EXISTS feedback_sessions (
+    id              UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+    student_id      UUID        NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    concern_branch  TEXT        NOT NULL,
+    started_at      TIMESTAMP   NOT NULL DEFAULT NOW(),
+    completed       BOOLEAN     NOT NULL DEFAULT FALSE
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_student_id
+    ON feedback_sessions(student_id);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_concern_branch
+    ON feedback_sessions(concern_branch);
+
+-- ─── 3. Questions ───────────────────────────────────────────
+-- Static catalog of questions grouped by branch.
+CREATE TABLE IF NOT EXISTS questions (
+    id      TEXT            PRIMARY KEY,
+    branch  TEXT            NOT NULL,
+    text    TEXT            NOT NULL,
+    type    question_type   NOT NULL,
+    "order" INT             NOT NULL,
+
+    CONSTRAINT uq_questions_branch_order UNIQUE (branch, "order")
+);
+
+CREATE INDEX IF NOT EXISTS idx_questions_branch
+    ON questions(branch);
+
+-- ─── 4. Responses ───────────────────────────────────────────
+-- Contains answer data linked ONLY to a session, never directly
+-- to a student. This is the privacy boundary.
+CREATE TABLE IF NOT EXISTS responses (
+    id            UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+    session_id    UUID        NOT NULL REFERENCES feedback_sessions(id) ON DELETE CASCADE,
+    question_id   TEXT        NOT NULL REFERENCES questions(id) ON DELETE RESTRICT,
+    answer        TEXT        NOT NULL,
+    answered_at   TIMESTAMP   NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT uq_responses_session_question UNIQUE (session_id, question_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_responses_session_id
+    ON responses(session_id);
+
+-- ─── Privacy-Safe View ──────────────────────────────────────
+-- Provides anonymised response data for analytics.
+-- Deliberately omits student_id so downstream consumers
+-- cannot accidentally join to the students table.
+CREATE OR REPLACE VIEW anonymous_responses AS
+SELECT
+    r.id            AS response_id,
+    fs.id           AS session_id,
+    fs.concern_branch,
+    r.question_id,
+    q.text          AS question_text,
+    q.type          AS question_type,
+    r.answer,
+    r.answered_at
+FROM responses r
+JOIN feedback_sessions fs ON fs.id = r.session_id
+JOIN questions q          ON q.id  = r.question_id;
+
+COMMENT ON VIEW anonymous_responses IS
+    'Analytics-safe view: intentionally excludes student_id. '
+    'Do NOT create alternative views that expose student identity alongside answers.';
+
+COMMIT;

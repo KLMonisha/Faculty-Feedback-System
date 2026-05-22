@@ -1,89 +1,71 @@
-"""Feedback analysis endpoints using Claude AI."""
+"""
+Core AI endpoints:
+  POST /next-question      — adaptive question selection
+  POST /generate-insights  — Claude-powered theme extraction
+"""
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-import anthropic
 
-from app.config import settings
+from app.models import (
+    NextQuestionRequest,
+    NextQuestionResponse,
+    GenerateInsightsRequest,
+    GenerateInsightsResponse,
+)
+from app.services.question_selector import select_next_question, QUESTIONS
+from app.services.insight_generator import generate_insights
 
 router = APIRouter()
 
 
-# ─── Request / Response Models ───────────────────────────────
-class FeedbackInput(BaseModel):
-    """Input model for feedback analysis."""
-    feedback_text: str
-    faculty_name: str | None = None
-    course_code: str | None = None
+# ─────────────────────────────────────────────────────────────
+# POST /next-question
+# ─────────────────────────────────────────────────────────────
+@router.post("/next-question", response_model=NextQuestionResponse)
+async def next_question(payload: NextQuestionRequest):
+    """
+    Adaptive question selection.
 
+    Cold-start (no answers)  → decision-tree model
+    Warm-start (has answers) → TF-IDF similarity scoring
+    Done                     → after 5+ questions answered
+    """
+    next_qid = select_next_question(
+        session_id=payload.session_id,
+        concern_branch=payload.concern_branch,
+        answers_so_far=payload.answers_so_far,
+    )
 
-class SentimentResult(BaseModel):
-    """Structured sentiment analysis result."""
-    sentiment: str          # positive, negative, neutral, mixed
-    confidence: float       # 0.0 – 1.0
-    summary: str            # one-line summary
-    key_themes: list[str]   # extracted themes
-    suggestions: list[str]  # actionable suggestions
+    if next_qid is None:
+        return NextQuestionResponse(done=True)
 
-
-class AnalysisResponse(BaseModel):
-    """Full analysis response."""
-    success: bool
-    data: SentimentResult | None = None
-    error: str | None = None
-
-
-# ─── Endpoints ───────────────────────────────────────────────
-@router.post("/sentiment", response_model=AnalysisResponse)
-async def analyze_sentiment(payload: FeedbackInput):
-    """Analyze the sentiment and themes of faculty feedback using Claude."""
-
-    if not settings.claude_api_key:
+    # Verify the question exists in our catalogue
+    if next_qid not in QUESTIONS:
         raise HTTPException(
-            status_code=503,
-            detail="CLAUDE_API_KEY is not configured",
+            status_code=500,
+            detail=f"Selected question '{next_qid}' not found in catalogue",
         )
 
-    client = anthropic.Anthropic(api_key=settings.claude_api_key)
+    return NextQuestionResponse(next_question_id=next_qid, done=False)
 
-    prompt = f"""Analyze the following faculty feedback and return a JSON object with these fields:
-- sentiment: one of "positive", "negative", "neutral", "mixed"
-- confidence: a float between 0 and 1
-- summary: a one-sentence summary
-- key_themes: an array of key themes (max 5)
-- suggestions: an array of actionable improvement suggestions (max 3)
 
-Faculty: {payload.faculty_name or "Unknown"}
-Course: {payload.course_code or "Unknown"}
+# ─────────────────────────────────────────────────────────────
+# POST /generate-insights
+# ─────────────────────────────────────────────────────────────
+@router.post("/generate-insights", response_model=GenerateInsightsResponse)
+async def insights(payload: GenerateInsightsRequest):
+    """
+    Generate themes and suggestions from anonymised feedback.
 
-Feedback:
-\"\"\"{payload.feedback_text}\"\"\"
-
-Return ONLY the JSON object, no markdown or explanation."""
-
+    Requires a minimum of 5 response entries to produce meaningful insights.
+    Calls Claude Sonnet API with a structured extraction prompt.
+    """
     try:
-        message = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=1024,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        themes, suggestions = await generate_insights(payload.responses)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Insight generation failed: {exc}",
+        ) from exc
 
-        import json
-        result = json.loads(message.content[0].text)
-
-        return AnalysisResponse(
-            success=True,
-            data=SentimentResult(**result),
-        )
-    except Exception as e:
-        return AnalysisResponse(
-            success=False,
-            error=str(e),
-        )
-
-
-@router.post("/batch")
-async def analyze_batch(payloads: list[FeedbackInput]):
-    """Analyze multiple feedback entries. Returns a list of results."""
-    # TODO: Implement batch analysis with rate limiting
-    raise HTTPException(status_code=501, detail="Batch analysis not yet implemented")
+    return GenerateInsightsResponse(themes=themes, suggestions=suggestions)

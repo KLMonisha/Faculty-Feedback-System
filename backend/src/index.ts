@@ -2,35 +2,87 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
+import rateLimit from "express-rate-limit";
 import dotenv from "dotenv";
 
+import { connectRedis } from "./config/database";
 import { healthRouter } from "./routes/health";
-import { feedbackRouter } from "./routes/feedback";
-import { authRouter } from "./routes/auth";
+import { sessionRouter } from "./routes/session";
+import { dashboardRouter } from "./routes/dashboard";
 import { errorHandler } from "./middleware/errorHandler";
 
+// ─── Load env ───────────────────────────────────────────────
 dotenv.config({ path: "../.env" });
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// ─── Middleware ──────────────────────────────────────────────
+// ─── Security middleware ────────────────────────────────────
 app.use(helmet());
-app.use(cors({ origin: process.env.CORS_ORIGIN || "http://localhost:5173" }));
+app.use(
+  cors({
+    origin: process.env.CORS_ORIGIN || "http://localhost:5173",
+    methods: ["GET", "POST"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
+
+// ─── Rate limiting ──────────────────────────────────────────
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100,                 // 100 requests per window per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: { message: "Too many requests, please try again later." },
+  },
+});
+
+const sessionStartLimiter = rateLimit({
+  windowMs: 60 * 1000,  // 1 minute
+  max: 5,               // 5 session starts per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: { message: "Too many sessions created, slow down." },
+  },
+});
+
+app.use("/api", globalLimiter);
+
+// ─── Parsing & logging ─────────────────────────────────────
+app.use(express.json({ limit: "16kb" }));
 app.use(morgan("dev"));
-app.use(express.json());
 
 // ─── Routes ─────────────────────────────────────────────────
 app.use("/api/health", healthRouter);
-app.use("/api/auth", authRouter);
-app.use("/api/feedback", feedbackRouter);
+app.use("/api/session/start", sessionStartLimiter);
+app.use("/api/session", sessionRouter);
+app.use("/api/dashboard", dashboardRouter);
 
 // ─── Error handling ─────────────────────────────────────────
 app.use(errorHandler);
 
 // ─── Start ──────────────────────────────────────────────────
-app.listen(PORT, () => {
-  console.log(`🚀 Backend server running on http://localhost:${PORT}`);
-});
+const start = async () => {
+  try {
+    await connectRedis();
+    console.log("✅ Redis connected");
+  } catch (err) {
+    console.warn("⚠️  Redis unavailable — session caching disabled:", (err as Error).message);
+  }
+
+  app.listen(PORT, () => {
+    console.log(`🚀 Backend API running on http://localhost:${PORT}`);
+    console.log(`   POST /api/session/start`);
+    console.log(`   GET  /api/session/:id/next-question`);
+    console.log(`   POST /api/session/:id/answer`);
+    console.log(`   GET  /api/dashboard/insights`);
+  });
+};
+
+start();
 
 export default app;
