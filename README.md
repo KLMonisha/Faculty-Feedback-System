@@ -40,7 +40,9 @@ npm run install:all
 ### 3. Set up the database
 
 ```bash
-psql -f db/schema/001_init.sql
+createdb faculty_feedback
+psql -U postgres -d faculty_feedback -f db/schema/001_init.sql
+psql -U postgres -d faculty_feedback -f db/schema/seed.sql
 ```
 
 ### 4. Run all services
@@ -57,13 +59,13 @@ npm run dev
 
 ## Environment Variables
 
-| Variable       | Description                        |
-| -------------- | ---------------------------------- |
-| `POSTGRES_URL` | PostgreSQL connection string       |
-| `REDIS_URL`    | Redis connection string            |
-| `CLAUDE_API_KEY`| Anthropic Claude API key          |
-| `JWT_SECRET`   | Secret for JWT token signing       |
-| `PORT`         | Backend server port (default 3001) |
+| Variable       | Description                           |
+| -------------- | ------------------------------------- |
+| `POSTGRES_URL` | PostgreSQL connection string          |
+| `REDIS_URL`    | Redis connection string               |
+| `GROQ_API_KEY` | Groq API key (console.groq.com)       |
+| `JWT_SECRET`   | Secret for JWT token signing          |
+| `PORT`         | Backend server port (default 3001)    |
 
 ## Scripts
 

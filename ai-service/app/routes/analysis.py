@@ -1,7 +1,7 @@
 """
 Core AI endpoints:
   POST /next-question      — adaptive question selection
-  POST /generate-insights  — Claude-powered theme extraction
+  POST /generate-insights  — Groq-powered theme extraction
 """
 
 from fastapi import APIRouter, HTTPException
@@ -58,7 +58,7 @@ async def insights(payload: GenerateInsightsRequest):
     Generate themes and suggestions from anonymised feedback.
 
     Requires a minimum of 5 response entries to produce meaningful insights.
-    Calls Claude Sonnet API with a structured extraction prompt.
+    Calls Groq API (llama3-70b-8192) with a structured extraction prompt.
     """
     try:
         themes, suggestions = await generate_insights(payload.responses)
