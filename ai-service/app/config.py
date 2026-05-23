@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     model_config = {
         "env_file": "../.env",
         "env_file_encoding": "utf-8",
+        # Allow extra environment variables (e.g., POSTGRES_USER/PASSWORD)
+        "extra": "ignore",
     }
 
 

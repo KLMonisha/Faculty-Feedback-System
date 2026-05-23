@@ -94,6 +94,7 @@ sessionRouter.post(
           : null,
       });
     } catch (err) {
+      console.error("[session.start] error:", err);
       next(err);
     }
   }
@@ -207,6 +208,7 @@ sessionRouter.get(
         type: q.type,
       });
     } catch (err) {
+      console.error("[session.next-question] error:", err);
       next(err);
     }
   }
@@ -285,6 +287,7 @@ sessionRouter.post(
 
       res.json({ success: true, saved: true });
     } catch (err) {
+      console.error("[session.answer] error:", err);
       next(err);
     }
   }
