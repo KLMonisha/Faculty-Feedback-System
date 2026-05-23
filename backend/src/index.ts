@@ -78,12 +78,20 @@ const start = async () => {
     console.warn("⚠️  Redis unavailable — session caching disabled:", (err as Error).message);
   }
 
-  app.listen(PORT, () => {
-    console.log(`🚀 Backend API running on http://localhost:${PORT}`);
+  const server = app.listen(PORT, () => {
+    console.log(`Backend API running on http://localhost:${PORT}`);
     console.log(`   POST /api/session/start`);
     console.log(`   GET  /api/session/:id/next-question`);
     console.log(`   POST /api/session/:id/answer`);
     console.log(`   GET  /api/dashboard/insights`);
+  });
+
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(`Port ${PORT} is already in use. Kill the existing process or change PORT in .env`);
+      process.exit(1);
+    }
+    throw err;
   });
 };
 

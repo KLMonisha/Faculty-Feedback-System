@@ -12,8 +12,22 @@ import json
 
 from groq import Groq
 
-# ─── Client ──────────────────────────────────────────────────
-client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+# ─── Client (lazy-init) ──────────────────────────────────────
+_client: Groq | None = None
+
+
+def _get_client() -> Groq:
+    """Return the Groq client, creating it on first use."""
+    global _client
+    if _client is None:
+        api_key = os.environ.get("GROQ_API_KEY")
+        if not api_key:
+            raise ValueError(
+                "GROQ_API_KEY is not configured. Set it in .env to enable LLM insights."
+            )
+        _client = Groq(api_key=api_key)
+    return _client
+
 
 SYSTEM_PROMPT = (
     "You are an academic feedback analyst. "
@@ -40,11 +54,7 @@ def call_llm_for_insights(responses: list[dict], branch: str) -> dict:
         ValueError: If the LLM response cannot be parsed as valid JSON
                     with the expected structure.
     """
-    groq_key = os.environ.get("GROQ_API_KEY")
-    if not groq_key:
-        raise ValueError(
-            "GROQ_API_KEY is not configured. Set it in .env to enable LLM insights."
-        )
+    groq = _get_client()
 
     # Format responses as a numbered Q/A list
     qa_lines: list[str] = []
@@ -65,7 +75,7 @@ def call_llm_for_insights(responses: list[dict], branch: str) -> dict:
         "Return ONLY the JSON object, no explanation or markdown."
     )
 
-    completion = client.chat.completions.create(
+    completion = groq.chat.completions.create(
         model="llama3-70b-8192",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
