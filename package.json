@@ -8,7 +8,7 @@
     "dev:frontend": "cd frontend && npm run dev",
     "dev:backend": "cd backend && npm run dev",
     "dev:ai": "cd ai-service && uvicorn main:app --reload --port 8000",
-    "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install && cd ../ai-service && pip install -r requirements.txt",
+    "install:all": "npm install && (cd frontend && npm install) && (cd backend && npm install) && (cd ai-service && pip install -r requirements.txt)",
     "build:frontend": "cd frontend && npm run build",
     "lint": "cd frontend && npm run lint"
   },

@@ -21,7 +21,7 @@ const PORT = process.env.PORT || 3001;
 app.use(helmet());
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN || "http://localhost:5173",
+    origin: process.env.CORS_ORIGIN || /^http:\/\/localhost:\d+$/,
     methods: ["GET", "POST"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
@@ -68,7 +68,11 @@ app.use(errorHandler);
 // ─── Start ──────────────────────────────────────────────────
 const start = async () => {
   try {
-    await connectRedis();
+    // Try to connect to Redis with a 5-second timeout
+    await Promise.race([
+      connectRedis(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Redis connection timeout")), 5000))
+    ]);
     console.log("✅ Redis connected");
   } catch (err) {
     console.warn("⚠️  Redis unavailable — session caching disabled:", (err as Error).message);

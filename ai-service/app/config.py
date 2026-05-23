@@ -9,6 +9,15 @@ class Settings(BaseSettings):
     # AI (Groq)
     groq_api_key: str = ""
 
+    # Database
+    postgres_url: str = "postgresql://postgres:postgres@localhost:5432/faculty_feedback"
+
+    # Cache / Queue
+    redis_url: str = "redis://localhost:6379"
+
+    # Auth
+    jwt_secret: str = "changethissecret"
+
     # Server
     port: int = 8000
     cors_origin: str = "http://localhost:5173"
