@@ -16,13 +16,13 @@ from app.routes import health, analysis
 async def lifespan(app: FastAPI):
     """Startup / shutdown lifecycle."""
     # Startup: the cold-start model trains at import time (question_selector.py)
-    print("🤖 AI Service started")
-    print(f"📄 Docs at http://localhost:{settings.port}/docs")
-    print(f"🌿 Claude model: {settings.claude_model}")
-    print(f"🎯 Max questions/session: {settings.max_questions_per_session}")
+    print("[AI] Service started")
+    print(f"[AI] Docs at http://localhost:{settings.port}/docs")
+    print("[AI] LLM: Groq llama3-70b-8192")
+    print(f"[AI] Max questions/session: {settings.max_questions_per_session}")
     yield
     # Shutdown
-    print("👋 AI Service shutting down")
+    print("[AI] Service shutting down")
 
 
 app = FastAPI(
@@ -44,5 +44,6 @@ app.add_middleware(
 )
 
 # ─── Routes ──────────────────────────────────────────────────
-app.include_router(health.router, prefix="/api",          tags=["Health"])
-app.include_router(analysis.router, prefix="/api/analysis", tags=["Analysis"])
+app.include_router(health.router,                              tags=["Health"])
+app.include_router(health.router, prefix="/api",               tags=["Health"])
+app.include_router(analysis.router, prefix="/api/analysis",    tags=["Analysis"])

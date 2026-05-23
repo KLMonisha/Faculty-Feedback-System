@@ -6,9 +6,8 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     """Configuration loaded from .env file or environment."""
 
-    # AI
-    claude_api_key: str = ""
-    claude_model: str = "claude-sonnet-4-20250514"
+    # AI (Groq)
+    groq_api_key: str = ""
 
     # Server
     port: int = 8000
