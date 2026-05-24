@@ -11,9 +11,14 @@ import {
   SessionIdParamSchema,
 } from "../schemas";
 import {
-  getNextQuestion,
+  getNextQuestion as getAINextQuestion,
   AiServiceUnavailableError,
 } from "../services/aiService";
+import {
+  getNextQuestion as engineGetNextQuestion,
+  shouldEndSession,
+} from "../engines/questionEngine";
+import { QUESTION_FLOW } from "../data/questionFlow";
 
 export const sessionRouter = Router();
 
@@ -75,10 +80,15 @@ sessionRouter.post(
       });
 
       // 6. Seed the session cache in Redis
+      //    TASK 3: Initialize additional tracking keys
       await cacheSessionState(sessionId, {
         concern_branch,
         answered_ids: [],
         question_count: 0,
+        answeredIds: JSON.stringify([]),
+        answerRatings: JSON.stringify({}),
+        lastQuestionType: "",
+        questionCount: "0",
       });
 
       res.status(201).json({
@@ -102,6 +112,7 @@ sessionRouter.post(
 
 // ─────────────────────────────────────────────────────────────
 // GET /api/session/:session_id/next-question
+// TASK 4: Use questionEngine for multi-step flow
 // ─────────────────────────────────────────────────────────────
 sessionRouter.get(
   "/:session_id/next-question",
@@ -130,82 +141,183 @@ sessionRouter.get(
 
       const session = sessionResult.rows[0];
       if (session.completed) {
-        res.json({ success: true, done: true });
+        res.json({ success: true, done: true, questionCount: 999 });
         return;
       }
 
-      // 2. Fetch all answered questions with their answers from DB
-      const answeredResult = await query<{
-        question_id: string;
-        answer: string;
-      }>(
-        `SELECT question_id, answer FROM responses WHERE session_id = $1`,
-        [sessionId]
-      );
-      const answersSoFar = answeredResult.rows.map((r) => ({
-        question_id: r.question_id,
-        answer: r.answer,
-      }));
-      const answeredIds = answersSoFar.map((a) => a.question_id);
+      // 2. Read session state from Redis
+      const cached = await getCachedSessionState(sessionId);
+      const answeredIds: string[] = cached?.answeredIds
+        ? JSON.parse(cached.answeredIds as string)
+        : [];
+      const questionCount = answeredIds.length;
+      const lastQuestionType = (cached?.lastQuestionType as string) || "";
 
-      // 3. Try the AI service for adaptive question selection
-      try {
-        const aiResponse = await getNextQuestion(
-          sessionId,
-          session.concern_branch,
-          answersSoFar
+      // 3. If this is the first question (count = 0), use ML-predicted first question
+      //    (existing logic — unchanged)
+      if (questionCount === 0) {
+        // Fetch all answered questions with their answers from DB
+        const answeredResult = await query<{
+          question_id: string;
+          answer: string;
+        }>(
+          `SELECT question_id, answer FROM responses WHERE session_id = $1`,
+          [sessionId]
+        );
+        const answersSoFar = answeredResult.rows.map((r) => ({
+          question_id: r.question_id,
+          answer: r.answer,
+        }));
+        const dbAnsweredIds = answersSoFar.map((a) => a.question_id);
+
+        // Try the AI service for the first question
+        try {
+          const aiResponse = await getAINextQuestion(
+            sessionId,
+            session.concern_branch,
+            answersSoFar
+          );
+
+          if (aiResponse.done) {
+            // AI says done but we haven't even started — this shouldn't happen
+            // but respect it only if we have enough questions
+            if (dbAnsweredIds.length >= 5) {
+              await query(
+                `UPDATE feedback_sessions SET completed = TRUE WHERE id = $1`,
+                [sessionId]
+              );
+              res.json({ success: true, done: true, questionCount: dbAnsweredIds.length });
+              return;
+            }
+            // Otherwise fall through to engine
+          } else if (aiResponse.next_question_id) {
+            // Return the AI-predicted first question
+            const questionObj = QUESTION_FLOW[aiResponse.next_question_id];
+            if (questionObj) {
+              res.json({
+                success: true,
+                done: false,
+                question_id: questionObj.id,
+                text: questionObj.text,
+                type: questionObj.type,
+                options: questionObj.options,
+                questionCount,
+              });
+              return;
+            }
+          }
+        } catch (err) {
+          if (!(err instanceof AiServiceUnavailableError)) throw err;
+          // Fall through to DB-based fallback
+        }
+
+        // Fallback: sequential first question from DB
+        const nextQuestion = await query<{
+          id: string;
+          text: string;
+          type: string;
+        }>(
+          `SELECT id, text, type FROM questions
+           WHERE branch = $1
+             AND id NOT IN (SELECT unnest($2::text[]))
+           ORDER BY "order" ASC
+           LIMIT 1`,
+          [session.concern_branch, dbAnsweredIds]
         );
 
-        if (aiResponse.done) {
-          await query(
-            `UPDATE feedback_sessions SET completed = TRUE WHERE id = $1`,
-            [sessionId]
-          );
-          res.json({ success: true, done: true });
+        if (nextQuestion.rows.length === 0) {
+          // No questions at all in DB — try the question flow config
+          const flowFirstId = `${session.concern_branch}_rating_01`;
+          const flowFirst = QUESTION_FLOW[flowFirstId];
+          if (flowFirst) {
+            res.json({
+              success: true,
+              done: false,
+              question_id: flowFirst.id,
+              text: flowFirst.text,
+              type: flowFirst.type,
+              options: flowFirst.options,
+              questionCount: 0,
+            });
+            return;
+          }
+          res.json({ success: true, done: true, questionCount: 0 });
           return;
         }
 
+        const q = nextQuestion.rows[0];
         res.json({
           success: true,
           done: false,
-          question_id: aiResponse.next_question_id,
+          question_id: q.id,
+          text: q.text,
+          type: q.type,
+          questionCount: 0,
         });
         return;
-      } catch (err) {
-        if (!(err instanceof AiServiceUnavailableError)) throw err;
-        // Fall through to DB-based fallback
       }
 
-      // 4. Fallback: sequential question from DB
-      const nextQuestion = await query<{
-        id: string;
-        text: string;
-        type: string;
-      }>(
-        `SELECT id, text, type FROM questions
-         WHERE branch = $1
-           AND id NOT IN (SELECT unnest($2::text[]))
-         ORDER BY "order" ASC
-         LIMIT 1`,
-        [session.concern_branch, answeredIds]
-      );
-
-      if (nextQuestion.rows.length === 0) {
+      // 4. For subsequent questions (count > 0): use questionEngine
+      //    Check shouldEndSession first
+      if (shouldEndSession(answeredIds, session.concern_branch)) {
         await query(
           `UPDATE feedback_sessions SET completed = TRUE WHERE id = $1`,
           [sessionId]
         );
-        res.json({ success: true, done: true });
+        res.json({ success: true, done: true, questionCount });
         return;
       }
 
-      const q = nextQuestion.rows[0];
+      // Get the last answered question to determine the next one
+      const lastAnsweredId = answeredIds[answeredIds.length - 1];
+      const answerRatings: Record<string, string | number> = cached?.answerRatings
+        ? JSON.parse(cached.answerRatings as string)
+        : {};
+      const lastAnswer = answerRatings[lastAnsweredId] ?? "";
+
+      const nextQuestionId = engineGetNextQuestion(
+        lastAnsweredId,
+        lastAnswer,
+        answeredIds,
+        session.concern_branch
+      );
+
+      if (!nextQuestionId) {
+        // No more questions available
+        if (answeredIds.length >= 5) {
+          await query(
+            `UPDATE feedback_sessions SET completed = TRUE WHERE id = $1`,
+            [sessionId]
+          );
+          res.json({ success: true, done: true, questionCount });
+          return;
+        }
+        // Under minimum but no questions left — end anyway
+        await query(
+          `UPDATE feedback_sessions SET completed = TRUE WHERE id = $1`,
+          [sessionId]
+        );
+        res.json({ success: true, done: true, questionCount });
+        return;
+      }
+
+      // Look up the full question object from QUESTION_FLOW
+      const questionObj = QUESTION_FLOW[nextQuestionId];
+      if (!questionObj) {
+        // Question ID from engine doesn't exist in flow — shouldn't happen
+        console.error(`[session.next-question] Question ${nextQuestionId} not found in QUESTION_FLOW`);
+        res.json({ success: true, done: true, questionCount });
+        return;
+      }
+
       res.json({
         success: true,
         done: false,
-        question_id: q.id,
-        text: q.text,
-        type: q.type,
+        question_id: questionObj.id,
+        text: questionObj.text,
+        type: questionObj.type,
+        options: questionObj.options,
+        questionCount,
       });
     } catch (err) {
       console.error("[session.next-question] error:", err);
@@ -216,6 +328,7 @@ sessionRouter.get(
 
 // ─────────────────────────────────────────────────────────────
 // POST /api/session/:session_id/answer
+// TASK 3: Update Redis session state with question tracking
 // ─────────────────────────────────────────────────────────────
 sessionRouter.post(
   "/:session_id/answer",
@@ -228,8 +341,8 @@ sessionRouter.post(
       const { question_id, answer } = req.body;
 
       // 1. Verify session exists and is not completed
-      const sessionCheck = await query<{ id: string; completed: boolean }>(
-        `SELECT id, completed FROM feedback_sessions WHERE id = $1`,
+      const sessionCheck = await query<{ id: string; completed: boolean; concern_branch: string }>(
+        `SELECT id, completed, concern_branch FROM feedback_sessions WHERE id = $1`,
         [sessionId]
       );
 
@@ -249,13 +362,17 @@ sessionRouter.post(
         return;
       }
 
-      // 2. Verify question exists
+      const branch = sessionCheck.rows[0].concern_branch;
+
+      // 2. Verify question exists (check both DB and QUESTION_FLOW)
       const questionCheck = await query<{ id: string }>(
         `SELECT id FROM questions WHERE id = $1`,
         [question_id]
       );
 
-      if (questionCheck.rows.length === 0) {
+      const existsInFlow = !!QUESTION_FLOW[question_id];
+
+      if (questionCheck.rows.length === 0 && !existsInFlow) {
         res.status(400).json({
           success: false,
           error: { message: `Question '${question_id}' does not exist` },
@@ -273,19 +390,89 @@ sessionRouter.post(
       );
 
       // 4. Update session state in Redis (TTL 2 hours)
+      //    TASK 3: Track question history, answer ratings, and types
       const cached = await getCachedSessionState(sessionId);
-      const answeredIds = cached
-        ? [...new Set([...(cached.answered_ids as string[]), question_id])]
-        : [question_id];
 
+      // Parse existing tracking data
+      const answeredIds: string[] = cached?.answeredIds
+        ? JSON.parse(cached.answeredIds as string)
+        : [];
+      const answerRatings: Record<string, string | number> = cached?.answerRatings
+        ? JSON.parse(cached.answerRatings as string)
+        : {};
+
+      // Push the new question ID (avoid duplicates)
+      if (!answeredIds.includes(question_id)) {
+        answeredIds.push(question_id);
+      }
+
+      // Save the answer into answerRatings
+      answerRatings[question_id] = answer;
+
+      // Determine the question type
+      const questionFlowItem = QUESTION_FLOW[question_id];
+      const lastQuestionType = questionFlowItem?.type || "";
+
+      // Compute next question using the engine
+      const nextQuestionId = engineGetNextQuestion(
+        question_id,
+        answer,
+        answeredIds,
+        branch
+      );
+
+      // Check if session should end
+      const done = shouldEndSession(answeredIds, branch) || nextQuestionId === null;
+
+      // Build the next question response data
+      let nextQuestionData: {
+        question_id?: string;
+        text?: string;
+        type?: string;
+        options?: string[];
+      } = {};
+
+      if (nextQuestionId && !done) {
+        const nextQ = QUESTION_FLOW[nextQuestionId];
+        if (nextQ) {
+          nextQuestionData = {
+            question_id: nextQ.id,
+            text: nextQ.text,
+            type: nextQ.type,
+            options: nextQ.options,
+          };
+        }
+      }
+
+      // Mark session complete in DB if done
+      if (done) {
+        await query(
+          `UPDATE feedback_sessions SET completed = TRUE WHERE id = $1`,
+          [sessionId]
+        );
+      }
+
+      // Save updated state to Redis
       await cacheSessionState(sessionId, {
         ...(cached || {}),
+        concern_branch: branch,
         answered_ids: answeredIds,
         question_count: answeredIds.length,
+        answeredIds: JSON.stringify(answeredIds),
+        answerRatings: JSON.stringify(answerRatings),
+        lastQuestionType,
+        questionCount: String(answeredIds.length),
         last_answered_at: new Date().toISOString(),
       });
 
-      res.json({ success: true, saved: true });
+      res.json({
+        success: true,
+        saved: true,
+        nextQuestionId: nextQuestionId,
+        done,
+        questionCount: answeredIds.length,
+        ...(nextQuestionData.question_id ? { nextQuestion: nextQuestionData } : {}),
+      });
     } catch (err) {
       console.error("[session.answer] error:", err);
       next(err);

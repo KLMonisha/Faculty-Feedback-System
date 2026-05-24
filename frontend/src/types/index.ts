@@ -23,11 +23,28 @@ export interface NextQuestionResponse {
   text?: string;
   type?: "rating" | "mcq" | "open";
   options?: string[];
+  questionCount?: number;
+  nextQuestionId?: string;
+  nextQuestion?: {
+    question_id: string;
+    text: string;
+    type: string;
+    options?: string[];
+  };
 }
 
 export interface AnswerResponse {
   success: boolean;
   saved: boolean;
+  nextQuestionId?: string;
+  done?: boolean;
+  questionCount?: number;
+  nextQuestion?: {
+    question_id: string;
+    text: string;
+    type: string;
+    options?: string[];
+  };
 }
 
 // ─── Dashboard types ────────────────────────────────────────

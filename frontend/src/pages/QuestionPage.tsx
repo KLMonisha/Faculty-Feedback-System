@@ -5,7 +5,8 @@ import ProgressBar from "../components/ProgressBar";
 import StarRating from "../components/StarRating";
 import type { SessionState, Question } from "../types";
 
-const MAX_QUESTIONS = 5;
+const MAX_QUESTIONS = 7;
+const MIN_QUESTIONS_BEFORE_EXIT = 5;
 
 // MCQ options per question type (fallback if API doesn't provide them)
 const MCQ_OPTIONS: Record<string, string[]> = {
@@ -50,18 +51,56 @@ export default function QuestionPage({ session, onComplete, onUpdateSession }: P
       setAnswer("");
       setRatingValue(0);
 
+      const questionCount = data.questionCount ?? session.questionNumber;
+
+      // TASK 5: Only end session when BOTH conditions are met:
+      // 1. Backend says done === true
+      // 2. We have answered at least MIN_QUESTIONS_BEFORE_EXIT questions
       if (data.done) {
+        if (questionCount >= MIN_QUESTIONS_BEFORE_EXIT) {
+          onComplete();
+          return;
+        }
+        // Safety net: done=true but not enough questions answered.
+        // Log a warning and try to continue.
+        console.warn(
+          `[QuestionPage] Backend sent done=true but only ${questionCount} questions answered (min: ${MIN_QUESTIONS_BEFORE_EXIT}). Requesting next question.`
+        );
+        // If there's still a next question in the response, use it
+        if (data.nextQuestion) {
+          const nextQ: Question = {
+            question_id: data.nextQuestion.question_id!,
+            text: data.nextQuestion.text || "",
+            type: (data.nextQuestion.type as Question["type"]) || "open",
+            options: data.nextQuestion.options,
+          };
+          onUpdateSession({
+            ...session,
+            currentQuestion: nextQ,
+            questionNumber: session.questionNumber + 1,
+          });
+          return;
+        }
+        // No next question available — accept the end
         onComplete();
         return;
       }
 
-      // Build the next question object
-      const nextQ: Question = {
-        question_id: data.question_id!,
-        text: data.text || "",
-        type: data.type || "open",
-        options: data.options,
-      };
+      // Build the next question object from either the embedded nextQuestion
+      // or the top-level fields (backward-compatible)
+      const nextQ: Question = data.nextQuestion
+        ? {
+            question_id: data.nextQuestion.question_id!,
+            text: data.nextQuestion.text || "",
+            type: (data.nextQuestion.type as Question["type"]) || "open",
+            options: data.nextQuestion.options,
+          }
+        : {
+            question_id: data.question_id!,
+            text: data.text || "",
+            type: data.type || "open",
+            options: data.options,
+          };
 
       onUpdateSession({
         ...session,

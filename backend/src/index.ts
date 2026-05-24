@@ -11,6 +11,7 @@ import { healthRouter } from "./routes/health";
 import { sessionRouter } from "./routes/session";
 import { dashboardRouter } from "./routes/dashboard";
 import { errorHandler } from "./middleware/errorHandler";
+import { debugRouter } from "./routes/debug";
 
 // ─── Load env ───────────────────────────────────────────────
 dotenv.config({ path: "../.env" });
@@ -62,6 +63,7 @@ app.use("/api/health", healthRouter);
 app.use("/api/session/start", sessionStartLimiter);
 app.use("/api/session", sessionRouter);
 app.use("/api/dashboard", dashboardRouter);
+app.use("/api/debug", debugRouter);
 
 // ─── Error handling ─────────────────────────────────────────
 app.use(errorHandler);
