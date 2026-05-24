@@ -126,22 +126,46 @@ export default function QuestionPage({ session, onComplete, onUpdateSession }: P
 
       {/* Question card */}
       <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 backdrop-blur-sm sm:p-8">
-        {/* Type badge */}
-        <span
-          className={`mb-4 inline-block rounded-full px-3 py-1 text-xs font-medium
-            ${question.type === "rating"
-              ? "bg-amber-500/15 text-amber-300"
+        {/* Type badge + AI indicator */}
+        <div className="mb-4 flex items-center gap-2">
+          {session.questionNumber > 3 ? (
+            <span
+              className="inline-block rounded-full px-3 py-1 text-xs font-medium"
+              style={{
+                background: "linear-gradient(135deg, rgba(20,184,166,0.15), rgba(139,92,246,0.15))",
+                color: "#a5b4fc",
+              }}
+            >
+              ✦ Personalised
+            </span>
+          ) : null}
+          <span
+            className={`inline-block rounded-full px-3 py-1 text-xs font-medium
+              ${question.type === "rating"
+                ? "bg-amber-500/15 text-amber-300"
+                : question.type === "mcq"
+                  ? "bg-indigo-500/15 text-indigo-300"
+                  : "bg-cyan-500/15 text-cyan-300"
+              }`}
+          >
+            {question.type === "rating"
+              ? "Rating"
               : question.type === "mcq"
-                ? "bg-indigo-500/15 text-indigo-300"
-                : "bg-cyan-500/15 text-cyan-300"
-            }`}
-        >
-          {question.type === "rating"
-            ? "Rating"
-            : question.type === "mcq"
-              ? "Multiple Choice"
-              : "Open Response"}
-        </span>
+                ? "Multiple Choice"
+                : "Open Response"}
+          </span>
+          {session.questionNumber > 3 && (
+            <span
+              className="inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider"
+              style={{
+                background: "linear-gradient(135deg, rgba(139,92,246,0.25), rgba(20,184,166,0.25))",
+                color: "#c4b5fd",
+              }}
+            >
+              AI
+            </span>
+          )}
+        </div>
 
         <h2 className="mb-6 text-lg font-semibold leading-relaxed text-slate-100 sm:text-xl">
           {question.text}

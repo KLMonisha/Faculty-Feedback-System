@@ -14,12 +14,7 @@ const MAX_QUESTIONS = 7;   // Hard maximum — don't over-survey
 /**
  * Determines the next question based on the current question's
  * transition rules and the student's answer.
- *
- * @param currentQuestionId - The question that was just answered
- * @param answer            - The student's answer (number for rating, string for mcq/open)
- * @param answeredIds       - All question IDs answered so far (including current)
- * @param branch            - The concern branch (clarity, workload, assessment, support)
- * @returns The next question ID, or null if the session should end
+ * Only used for static questions (Q1-Q3). Q4+ use AI generation.
  */
 export function getNextQuestion(
   currentQuestionId: string,
@@ -31,7 +26,6 @@ export function getNextQuestion(
 
   if (!current) {
     console.warn(`[QuestionEngine] Unknown question ID: ${currentQuestionId}`);
-    // Fallback: try to find any unused question in the branch
     const fallback = getUnusedBranchQuestion(branch, answeredIds, "");
     console.log(
       `[QuestionEngine] branch: ${branch} | answered: ${answeredIds.length} | current: ${currentQuestionId} | next: ${fallback}`
@@ -41,31 +35,25 @@ export function getNextQuestion(
 
   let resolvedNextId: string | null = null;
 
-  // Determine next based on answer type
   const numericAnswer = typeof answer === "number" ? answer : Number(answer);
   const isNumeric = !isNaN(numericAnswer) && current.type === "rating";
 
   if (isNumeric) {
-    // Rating-based transitions
     if (numericAnswer <= 2) {
       resolvedNextId = current.transitions.low ?? null;
     } else if (numericAnswer === 3) {
       resolvedNextId = current.transitions.medium ?? null;
     } else {
-      // 4-5
       resolvedNextId = current.transitions.high ?? null;
     }
   } else {
-    // MCQ or open-ended — use default transition
     resolvedNextId = current.transitions.default ?? null;
   }
 
-  // If the resolved next question was already answered, find an unused one
   if (resolvedNextId && answeredIds.includes(resolvedNextId)) {
     resolvedNextId = getUnusedBranchQuestion(branch, answeredIds, current.type);
   }
 
-  // If resolved is null (end of chain), try to find unused questions
   if (resolvedNextId === null) {
     resolvedNextId = getUnusedBranchQuestion(branch, answeredIds, current.type);
   }
@@ -78,16 +66,6 @@ export function getNextQuestion(
 }
 
 // ─── getUnusedBranchQuestion ────────────────────────────────
-/**
- * Finds an unanswered question in the given branch.
- * Avoids back-to-back open questions by preferring rating/mcq
- * when the last question was open.
- *
- * @param branch           - The concern branch
- * @param answeredIds      - All question IDs answered so far
- * @param lastQuestionType - The type of the most recently answered question
- * @returns The best candidate question ID, or null if none remain
- */
 export function getUnusedBranchQuestion(
   branch: string,
   answeredIds: string[],
@@ -105,8 +83,6 @@ export function getUnusedBranchQuestion(
     return null;
   }
 
-  // If the last question was open, prefer a non-open question to avoid
-  // back-to-back open questions (which feel tedious)
   if (lastQuestionType === "open") {
     const preferred = unused.find((q) => q.type === "rating" || q.type === "mcq");
     if (preferred) {
@@ -114,7 +90,6 @@ export function getUnusedBranchQuestion(
     }
   }
 
-  // Otherwise, return the first unused question (preserves natural order)
   return unused[0].id;
 }
 
@@ -122,14 +97,14 @@ export function getUnusedBranchQuestion(
 /**
  * Determines whether the feedback session should end.
  *
+ * Updated for AI-gen mode: in AI generation mode (questionCount >= 3),
+ * the AI can always generate more questions, so we rely purely on
+ * count bounds rather than checking QUESTION_FLOW for unused questions.
+ *
  * Rules:
  * - Never end before MIN_QUESTIONS (5) are answered
- * - End if MIN_QUESTIONS are met AND no unused questions remain
- * - Always end at MAX_QUESTIONS (7) — don't over-survey
- *
- * @param answeredIds - All question IDs answered so far
- * @param branch      - The concern branch
- * @returns true if the session should end
+ * - Always end at MAX_QUESTIONS (7)
+ * - Between 5-6: never end (AI can always generate more)
  */
 export function shouldEndSession(
   answeredIds: string[],
@@ -153,13 +128,10 @@ export function shouldEndSession(
     return true;
   }
 
-  // Between 5-6: end only if no unused questions remain
-  const hasUnused = getUnusedBranchQuestion(branch, answeredIds, "") !== null;
-  const shouldEnd = !hasUnused;
-
+  // Between 5-6: in AI-gen mode, never end early — AI can always
+  // generate more questions up to the maximum
   console.log(
-    `[QuestionEngine] branch: ${branch} | answered: ${count} | shouldEndSession: ${shouldEnd} (${hasUnused ? "unused questions remain" : "no unused questions"})`
+    `[QuestionEngine] branch: ${branch} | answered: ${count} | shouldEndSession: false (AI can generate more)`
   );
-
-  return shouldEnd;
+  return false;
 }

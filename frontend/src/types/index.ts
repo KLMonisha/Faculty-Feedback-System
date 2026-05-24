@@ -25,6 +25,7 @@ export interface NextQuestionResponse {
   options?: string[];
   questionCount?: number;
   nextQuestionId?: string;
+  isAiGenerated?: boolean;
   nextQuestion?: {
     question_id: string;
     text: string;

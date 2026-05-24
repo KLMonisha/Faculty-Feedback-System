@@ -2,6 +2,7 @@
 Core AI endpoints:
   POST /next-question      — adaptive question selection
   POST /generate-insights  — Groq-powered theme extraction
+  POST /generate-question  — dynamic AI question generation
 """
 
 from fastapi import APIRouter, HTTPException
@@ -11,9 +12,12 @@ from app.models import (
     NextQuestionResponse,
     GenerateInsightsRequest,
     GenerateInsightsResponse,
+    GenerateQuestionRequest,
+    GenerateQuestionResponse,
 )
 from app.services.question_selector import select_next_question, QUESTIONS
 from app.services.insight_generator import generate_insights
+from services.llm import generate_dynamic_question
 
 router = APIRouter()
 
@@ -69,3 +73,35 @@ async def insights(payload: GenerateInsightsRequest):
         ) from exc
 
     return GenerateInsightsResponse(themes=themes, suggestions=suggestions)
+
+
+# ─────────────────────────────────────────────────────────────
+# POST /generate-question
+# ─────────────────────────────────────────────────────────────
+@router.post("/generate-question", response_model=GenerateQuestionResponse)
+async def generate_question(payload: GenerateQuestionRequest):
+    """
+    Generate a personalised follow-up question (Q4-Q7) using Groq LLM.
+
+    Receives the full conversation history and generates the next
+    question that builds on everything the student has said so far.
+    """
+    try:
+        result = generate_dynamic_question(
+            branch=payload.branch,
+            answers_so_far=[entry.model_dump() for entry in payload.answers_so_far],
+            question_number=payload.question_number,
+            previously_generated_questions=payload.previously_generated_questions,
+            last_question_type=payload.last_question_type,
+        )
+        return GenerateQuestionResponse(**result)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Question generation failed: {exc}",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Unexpected error during question generation: {exc}",
+        ) from exc

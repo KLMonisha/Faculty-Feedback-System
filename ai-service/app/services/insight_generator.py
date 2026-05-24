@@ -26,10 +26,12 @@ async def generate_insights(
         q_info = QUESTIONS.get(r.question_id)
         if q_info:
             branch = q_info["branch"]
+        is_ai = r.question_id.startswith("ai_generated_")
         response_dicts.append({
             "answer": r.answer,
             "branch": branch,
             "question": q_info["text"] if q_info else r.question_id,
+            "is_ai_generated": is_ai,
         })
 
     try:

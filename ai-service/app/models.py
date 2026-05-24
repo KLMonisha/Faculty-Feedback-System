@@ -34,3 +34,27 @@ class GenerateInsightsResponse(BaseModel):
     """Extracted themes and suggestions."""
     themes: list[str] = Field(default_factory=list)
     suggestions: list[str] = Field(default_factory=list)
+
+
+# ─── POST /generate-question ────────────────────────────────
+class QAHistoryEntry(BaseModel):
+    """A single Q&A pair with full text for context."""
+    question_text: str
+    answer: str
+    type: str = "open"
+
+
+class GenerateQuestionRequest(BaseModel):
+    """Input for dynamic AI question generation."""
+    branch: str = Field(..., pattern=r"^(clarity|workload|assessment|support)$")
+    answers_so_far: list[QAHistoryEntry] = Field(default_factory=list)
+    question_number: int = Field(..., ge=4, le=7)
+    previously_generated_questions: list[str] = Field(default_factory=list)
+    last_question_type: str = Field(default="")
+
+
+class GenerateQuestionResponse(BaseModel):
+    """A dynamically generated question."""
+    text: str
+    type: str = "open"
+    options: list[str] | None = None
