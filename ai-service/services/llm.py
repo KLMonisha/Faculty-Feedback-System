@@ -2,7 +2,7 @@
 Groq LLM integration for structured feedback insights
 and dynamic adaptive question generation.
 
-Calls the Groq API (llama3-70b-8192) with scoped system prompts.
+Calls the Groq API (llama-3.3-70b-versatile) with scoped system prompts.
 """
 
 from __future__ import annotations
@@ -21,7 +21,15 @@ def _get_client() -> Groq:
     """Return the Groq client, creating it on first use."""
     global _client
     if _client is None:
+        # Try importing from app config first (pydantic-settings loads .env),
+        # fall back to os.environ for standalone usage
         api_key = os.environ.get("GROQ_API_KEY")
+        if not api_key:
+            try:
+                from app.config import settings
+                api_key = settings.groq_api_key
+            except ImportError:
+                pass
         if not api_key:
             raise ValueError(
                 "GROQ_API_KEY is not configured. Set it in .env to enable LLM insights."
@@ -39,7 +47,7 @@ INSIGHT_SYSTEM_PROMPT = (
 
 def call_llm_for_insights(responses: list[dict], branch: str) -> dict:
     """
-    Call Groq (llama3-70b-8192) to extract themes and suggestions
+    Call Groq (llama-3.3-70b-versatile) to extract themes and suggestions
     from anonymised faculty feedback.
 
     Accepts both static Q&A and AI-generated personalised follow-ups.
@@ -91,7 +99,7 @@ def call_llm_for_insights(responses: list[dict], branch: str) -> dict:
     )
 
     completion = groq.chat.completions.create(
-        model="llama3-70b-8192",
+        model="llama-3.3-70b-versatile",
         messages=[
             {"role": "system", "content": INSIGHT_SYSTEM_PROMPT},
             {"role": "user", "content": user_message},
@@ -228,7 +236,7 @@ def generate_dynamic_question(
     )
 
     completion = groq.chat.completions.create(
-        model="llama3-70b-8192",
+        model="llama-3.3-70b-versatile",
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
