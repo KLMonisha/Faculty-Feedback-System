@@ -97,7 +97,7 @@ const CLARITY_QUESTIONS: QuestionFlowItem[] = [
 const WORKLOAD_QUESTIONS: QuestionFlowItem[] = [
   {
     id: "workload_rating_01",
-    text: "How manageable is the weekly workload?",
+    text: "How evenly is the workload distributed across the semester?",
     type: "rating",
     transitions: {
       low: "workload_mcq_01",
@@ -116,7 +116,7 @@ const WORKLOAD_QUESTIONS: QuestionFlowItem[] = [
   },
   {
     id: "workload_rating_02",
-    text: "How reasonable are assignment deadlines?",
+    text: "How clearly are assignment expectations and submission guidelines communicated?",
     type: "rating",
     transitions: {
       low: "workload_open_01",
@@ -251,7 +251,7 @@ const ASSESSMENT_QUESTIONS: QuestionFlowItem[] = [
 const SUPPORT_QUESTIONS: QuestionFlowItem[] = [
   {
     id: "support_rating_01",
-    text: "How accessible is the faculty outside of class?",
+    text: "How easy is it to reach the faculty when you need help outside class?",
     type: "rating",
     transitions: {
       low: "support_mcq_01",
@@ -270,7 +270,7 @@ const SUPPORT_QUESTIONS: QuestionFlowItem[] = [
   },
   {
     id: "support_rating_02",
-    text: "How supported do you feel when you're struggling with content?",
+    text: "When you do get help, how effective and satisfying is the response you receive?",
     type: "rating",
     transitions: {
       low: "support_open_01",
