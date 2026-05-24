@@ -6,6 +6,7 @@ import rateLimit from "express-rate-limit";
 import dotenv from "dotenv";
 
 import { connectRedis } from "./config/database";
+import { query as dbQuery } from "./config/database";
 import { healthRouter } from "./routes/health";
 import { sessionRouter } from "./routes/session";
 import { dashboardRouter } from "./routes/dashboard";
@@ -13,7 +14,7 @@ import { errorHandler } from "./middleware/errorHandler";
 
 // ─── Load env ───────────────────────────────────────────────
 dotenv.config({ path: "../.env" });
-
+console.log(process.env.POSTGRES_PASSWORD);
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -76,6 +77,14 @@ const start = async () => {
     console.log("✅ Redis connected");
   } catch (err) {
     console.warn("⚠️  Redis unavailable — session caching disabled:", (err as Error).message);
+  }
+
+  // Quick DB connectivity check to surface auth/connectivity errors early
+  try {
+    await dbQuery("SELECT 1");
+    console.log("✅ PostgreSQL reachable");
+  } catch (err) {
+    console.error("❌ PostgreSQL connection test failed:", (err as Error).message);
   }
 
   const server = app.listen(PORT, () => {

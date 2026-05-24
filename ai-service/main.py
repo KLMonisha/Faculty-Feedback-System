@@ -47,3 +47,13 @@ app.add_middleware(
 app.include_router(health.router,                              tags=["Health"])
 app.include_router(health.router, prefix="/api",               tags=["Health"])
 app.include_router(analysis.router, prefix="/api/analysis",    tags=["Analysis"])
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True
+    )

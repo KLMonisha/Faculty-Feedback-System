@@ -1,3 +1,5 @@
+import dotenv from "dotenv";
+dotenv.config()
 // ─── API response types ─────────────────────────────────────
 
 export interface StartSessionResponse {
