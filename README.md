@@ -1,6 +1,6 @@
 # 🎓 Faculty Feedback System
 
-A full-stack application for collecting, analyzing, and visualizing faculty feedback using AI-powered sentiment analysis.
+A smart feedback collection system for universities where the first half of questions are generated dynamically using a Decision Tree model based on course type and faculty profile, and the second half are personalised in real time using the Groq API based on earlier responses. Built with a React frontend, Node.js backend, Python/FastAPI AI service, PostgreSQL, and Redis.
 
 ## Architecture
 
